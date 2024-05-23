@@ -20,7 +20,6 @@ library(gridExtra)
 
 
 ```{r}
-# Load required packages
 library(tidyverse)
 
 # Teaching modes and their basic impacts
