@@ -1,0 +1,209 @@
+---
+title: "CVT ABM Project"
+author: "Shaked Mofaz"
+date: "2024-04-24"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(NetLogoR)
+library(readr)
+library(ggplot2)
+library(ineq)
+library(gridExtra)
+```
+
+
+```{r}
+# Load required packages
+library(tidyverse)
+
+# Teaching modes and their basic impacts
+vocalModes <- c("Overdrive", "Neutral")
+
+# probability of each mode for each teacher
+modeProbabilities <- list(
+  Teacher1 = c(Overdrive = 0.98, Neutral = 0.2),
+  Teacher2 = c(Overdrive = 0.2, Neutral = 0.98),
+  Teacher3 = c(Overdrive = 0.5, Neutral = 0.5)
+)
+
+# payoff function reflecting student outcomes
+teachingPayoff <- function(mode, previous_engagement, previous_recall) {
+  engagement_variation <- sample(-2:2, 1)
+  recall_variation <- sample(-2:2, 1)
+
+  if (mode == "Overdrive") {
+    engagement_increase <- 5 + engagement_variation
+    recall_change <- -1 + recall_variation
+  } else if (mode == "Neutral") {
+    engagement_increase <- -1 + engagement_variation
+    recall_change <- 3 + recall_variation
+  }
+
+  return(list(
+    engagement = max(previous_engagement + engagement_increase, 0),
+    recall = max(previous_recall + recall_change, 0)
+  ))
+}
+
+# teaching session for each teacher
+simulateTeacherSession <- function(teacherName, num_sessions, modeProbabilities, initial_engagement, initial_recall) {
+  results <- tibble(teacher = character(), session = integer(), engagement = numeric(), recall = numeric(), information = numeric())
+  current_engagement <- initial_engagement
+  current_recall <- initial_recall
+  current_information <- 1
+  
+  for (session in 1:num_sessions) {
+    mode <- sample(names(modeProbabilities), 1, prob = modeProbabilities)
+    outcomes <- teachingPayoff(mode, current_engagement, current_recall)
+    current_engagement <- outcomes$engagement
+    current_recall <- outcomes$recall
+    
+    # Jitter information based on recall score
+    jitter_factor <- runif(1, 1 - (current_recall / 100), 1 + (current_recall / 100))
+    current_information <- 1 * jitter_factor
+    
+    results <- results %>% 
+      add_row(teacher = teacherName, session = session, engagement = current_engagement, recall = current_recall, information = current_information)
+  }
+
+  return(results)
+}
+
+# Simulating the teaching sessions for each teacher
+results_teacher1 <- simulateTeacherSession("Teacher1", 20, modeProbabilities$Teacher1, 50, 50)
+results_teacher2 <- simulateTeacherSession("Teacher2", 20, modeProbabilities$Teacher2, 50, 50)
+results_teacher3 <- simulateTeacherSession("Teacher3", 20, modeProbabilities$Teacher3, 50, 50)
+
+
+results <- bind_rows(results_teacher1, results_teacher2, results_teacher3)
+
+
+```
+
+```{r}
+results
+
+write_csv(results, "C:/Users/shake/Desktop/Cognitive Science/Social and Culture Dynamics/Exam CVT ABM project.csv")
+```
+
+
+# Statistics
+
+
+## Data Preparation
+
+```{r}
+results <- results %>%
+  mutate(vocal_mode = case_when(
+    teacher == "Teacher1" ~ "Overdrive",
+    teacher == "Teacher2" ~ "Neutral",
+    teacher == "Teacher3" ~ "Dynamic",
+    TRUE ~ NA_character_
+  ))
+```
+
+## Linear Regression Analysis
+
+```{r}
+# Linear regression for engagement
+engagement_model <- lm(engagement ~ vocal_mode + teacher, data = results)
+summary(engagement_model)
+
+# Linear regression for recall
+recall_model <- lm(recall ~ vocal_mode + teacher, data = results)
+summary(recall_model)
+
+# Linear regression for information jitter
+info_model <- lm(information ~ vocal_mode + teacher, data = results)
+summary(info_model)
+
+```
+
+## Visualization plots
+```{r}
+# Density plot for engagement
+engagement_density_plot <- ggplot(results, aes(x = engagement, fill = vocal_mode)) +
+  geom_density(alpha = 0.5) +
+  labs(title = "Density Plot of Engagement by Vocal Mode", x = "Engagement Score") +
+  theme_minimal()
+
+# Density plot for recall
+recall_density_plot <- ggplot(results, aes(x = recall, fill = vocal_mode)) +
+  geom_density(alpha = 0.5) +
+  labs(title = "Density Plot of Recall by Vocal Mode", x = "Recall Score") +
+  theme_minimal()
+
+# Density plot for information jitter
+information_density_plot <- ggplot(results, aes(x = information, fill = vocal_mode)) +
+  geom_density(alpha = 0.5) +
+  labs(title = "Density Plot of Information Jitter by Vocal Mode", x = "Information Jitter") +
+  theme_minimal()
+
+
+combined_density_plot <- grid.arrange(engagement_density_plot, recall_density_plot, information_density_plot, ncol = 1)
+
+
+print(combined_density_plot)
+
+
+```
+## Gini Coefficient Analysis
+
+```{r}
+# Gini coefficient for engagement
+gini_engagement <- results %>% group_by(teacher) %>% summarize(gini_engagement = Gini(engagement))
+
+# Gini coefficient for recall
+gini_recall <- results %>% group_by(teacher) %>% summarize(gini_recall = Gini(recall))
+
+# Gini coefficient for information
+gini_information <- results %>% group_by(teacher) %>% summarize(gini_information = Gini(information))
+
+gini_summary <- gini_engagement %>%
+  left_join(gini_recall, by = "teacher") %>%
+  left_join(gini_information, by = "teacher")
+
+print(gini_summary)
+
+```
+
+## Visualization of Trends
+
+```{r}
+
+
+# Engagement Trends
+engagement_plot <- ggplot(results, aes(x = session, y = engagement, color = teacher)) +
+  geom_line() +
+  labs(title = "Engagement Trend Across Strategies", x = "Session", y = "Engagement Score") +
+  theme_minimal() +
+  geom_point()
+
+# Recall Trends
+recall_plot <- ggplot(results, aes(x = session, y = recall, color = teacher)) +
+  geom_line() +
+  labs(title = "Recall Trend Across Strategies", x = "Session", y = "Recall Score") +
+  theme_minimal() +
+  geom_point()
+
+# Information Jittering Trends
+information_plot <- ggplot(results, aes(x = session, y = information, color = teacher)) +
+  geom_line() +
+  labs(title = "Information Jittering Across Strategies", x = "Session", y = "Information Jitter") +
+  theme_minimal() +
+  geom_point()
+
+
+combined_plot <- grid.arrange(engagement_plot, recall_plot, information_plot, ncol = 1)
+
+print(combined_plot)
+
+```
+
